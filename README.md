@@ -10,8 +10,8 @@ The goal of this project is to recreate the results of AlphaZero and MuZero for 
   - [x] Training training data export helper functions
   - [x] Implement policy/value (PV) network in Equinox
   - [x] Implement training data serialization with Parquet or Huggingface Datasets
-  - [ ] Implement PUCT with the PV network
-  - [ ] Implement full training loop
+  - [x] Implement PUCT with the PV network
+  - [x] Implement full training loop
 
 3. **MuZero Style Policy/Value network** (Not started): The third phase is to implement a MuZero-style policy and value network that can be used to guide the MCTS search. Relies on latent board representation and is also trained via self-play.
 
