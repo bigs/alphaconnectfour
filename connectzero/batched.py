@@ -8,9 +8,12 @@ import jax.numpy as jnp
 from connectzero.game import (
     TrainingSample,
     check_winner,
+    masked_policy_softmax,
+    normalize_legal_policy,
     play_move,
     to_model_input_batched,
     trajectories_active,
+    visit_count_logits,
 )
 from connectzero.model import ConnectZeroModel
 
@@ -71,7 +74,11 @@ class BatchedSearchTree(NamedTuple):
 
 
 def add_dirichlet_noise(
-    tree: BatchedSearchTree, key: jnp.ndarray, alpha: float, epsilon: float
+    tree: BatchedSearchTree,
+    key: jnp.ndarray,
+    board_state: jnp.ndarray,
+    alpha: float,
+    epsilon: float,
 ) -> BatchedSearchTree:
     """
     Add Dirichlet noise to the root node priors.
@@ -79,8 +86,14 @@ def add_dirichlet_noise(
     batch_size = tree.root_index.shape[0]
     noise = jax.random.dirichlet(key, jnp.full((batch_size, 7), alpha))
     batch_range = jnp.arange(batch_size)
-    priors = tree.children_priors[batch_range, tree.root_index]
+    legal_moves_mask = board_state[:, 0, :] == 0
+    noise = normalize_legal_policy(noise, legal_moves_mask)
+    priors = normalize_legal_policy(
+        tree.children_priors[batch_range, tree.root_index],
+        legal_moves_mask,
+    )
     mixed_priors = (1 - epsilon) * priors + epsilon * noise
+    mixed_priors = normalize_legal_policy(mixed_priors, legal_moves_mask)
     return tree._replace(
         children_priors=tree.children_priors.at[batch_range, tree.root_index].set(
             mixed_priors
@@ -300,7 +313,7 @@ def expand_leaf(
         (priors, value), _ = jax.vmap(model, in_axes=(0, None), out_axes=0)(
             model_input, model_state
         )
-        priors = jax.nn.softmax(priors, axis=1)
+        priors = masked_policy_softmax(priors, board_state[:, 0, :] == 0, axis=1)
         return priors, jnp.squeeze(value, axis=1)
 
     node_value = None
@@ -521,6 +534,7 @@ def run_mcts_search(
     temperature_depth: int = 15,
     dirichlet_alpha: float = 0.3,
     dirichlet_epsilon: float = 0.25,
+    add_root_noise: bool = False,
 ) -> tuple[BatchedSearchTree, jnp.ndarray, jnp.ndarray, TrainingSample]:
     """
     Run MCTS search on the given tree and board state.
@@ -625,7 +639,7 @@ def run_mcts_search(
             (priors, value), _ = jax.vmap(model, in_axes=(0, None), out_axes=0)(
                 model_input, model_state
             )
-            priors = jax.nn.softmax(priors, axis=1)
+            priors = masked_policy_softmax(priors, board_state[:, 0, :] == 0, axis=1)
             batch_range = jnp.arange(tree.root_index.shape[0])
             return tree._replace(
                 children_priors=tree.children_priors.at[
@@ -642,9 +656,11 @@ def run_mcts_search(
             tree,
         )
 
-        # Add Dirichlet noise to root priors for exploration
-        key, noise_key = jax.random.split(key)
-        tree = add_dirichlet_noise(tree, noise_key, dirichlet_alpha, dirichlet_epsilon)
+        if add_root_noise:
+            key, noise_key = jax.random.split(key)
+            tree = add_dirichlet_noise(
+                tree, noise_key, board_state, dirichlet_alpha, dirichlet_epsilon
+            )
 
     final_state: MCTSLoopState = jax.lax.fori_loop(
         0,
@@ -665,14 +681,8 @@ def run_mcts_search(
 
     # Sample action from the visit counts (with temperature)
     def sample_action(key, visits, temp):
-        # Exponentiate visits by 1/temp
-        logits = jnp.log(visits + 1e-8) / temp
-        # Mask again to be safe (logits will be very negative for 0 visits)
-        logits = jnp.where(legal_moves_mask, logits, -jnp.inf)
-
-        # Gumbel-Max sampling
-        gumbel_noise = -jnp.log(-jnp.log(jax.random.uniform(key, logits.shape)))
-        return jnp.argmax(logits + gumbel_noise, axis=1)
+        logits = visit_count_logits(visits, legal_moves_mask, temp, axis=1)
+        return jax.random.categorical(key, logits, axis=1)
 
     key, subkey = jax.random.split(key)
 

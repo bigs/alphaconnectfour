@@ -187,6 +187,7 @@ def run_batched_selfplay_while_loop(
     dirichlet_alpha: float,
     dirichlet_epsilon: float,
     max_moves: int = 42,
+    add_root_noise: bool = True,
 ) -> tuple[
     jnp.ndarray,
     batched.BatchedSearchTree,
@@ -247,6 +248,7 @@ def run_batched_selfplay_while_loop(
             temperature_depth,
             dirichlet_alpha,
             dirichlet_epsilon,
+            add_root_noise,
         )
 
         turn_count = jnp.count_nonzero(board_state, axis=(1, 2))
@@ -294,7 +296,8 @@ def run_batched_selfplay_while_loop(
 
 
 run_search_vmap = jax.vmap(
-    single.run_mcts_search, in_axes=(0, 0, None, None, 0, None, None, None, None, None)
+    single.run_mcts_search,
+    in_axes=(0, 0, None, None, 0, None, None, None, None, None, None),
 )
 advance_search_vmap = jax.vmap(single.advance_search, in_axes=(0, 0))
 
@@ -496,6 +499,8 @@ def run_simulate(args, parser):
         model_tuple = (model, model_state)
     elif args.checkpoint:
         parser.error("--checkpoint requires --puct to be set")
+    elif args.root_noise:
+        parser.error("--root-noise requires --puct to be set")
 
     for i in range(args.iterations):
         if args.iterations > 1:
@@ -537,6 +542,7 @@ def run_simulate(args, parser):
                         args.temperature_depth,
                         0.3,  # dirichlet_alpha
                         0.25,  # dirichlet_epsilon
+                        args.root_noise,
                     )
 
                     # Collect samples
@@ -590,6 +596,7 @@ def run_simulate(args, parser):
                             args.temperature_depth,
                             0.3,  # dirichlet_alpha
                             0.25,  # dirichlet_epsilon
+                            args.root_noise,
                         )
                         game_history.append(jax.device_get(sample))
 
@@ -651,6 +658,7 @@ def run_simulate(args, parser):
                         args.temperature_depth,
                         1.0,
                         0.25,
+                        args.root_noise,
                     )
                     game_history.append(jax.device_get(sample))
 
@@ -1041,6 +1049,7 @@ def run_loop(args):
                     0.3,  # dirichlet_alpha
                     0.25,  # dirichlet_epsilon
                     max_moves,
+                    True,
                 )
             )
 
@@ -1259,6 +1268,11 @@ def main():
         "--puct",
         action="store_true",
         help="Use PUCT with a randomly initialized neural network",
+    )
+    simulate_parser.add_argument(
+        "--root-noise",
+        action="store_true",
+        help="Mix Dirichlet noise into PUCT root priors (self-play data generation only)",
     )
 
     simulate_parser.add_argument(

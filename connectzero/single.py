@@ -9,9 +9,12 @@ from jax import Array
 from connectzero.game import (
     TrainingSample,
     check_winner_single,
+    masked_policy_softmax,
+    normalize_legal_policy,
     play_move_single,
     to_model_input,
     trajectory_is_active,
+    visit_count_logits,
 )
 from connectzero.model import ConnectZeroModel
 
@@ -288,7 +291,7 @@ def expand_leaf(
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
         model_input = to_model_input(board_state, turn_count)
         (priors, value), _ = model(model_input, model_state)
-        priors = jax.nn.softmax(priors)
+        priors = masked_policy_softmax(priors, board_state[0, :] == 0)
         return priors, jnp.squeeze(value)
 
     node_value = None
@@ -522,14 +525,23 @@ class MCTSLoopState(NamedTuple):
 
 
 def add_dirichlet_noise(
-    tree: SearchTree, key: jnp.ndarray, alpha: float, epsilon: float
+    tree: SearchTree,
+    key: jnp.ndarray,
+    board_state: jnp.ndarray,
+    alpha: float,
+    epsilon: float,
 ) -> SearchTree:
     """
     Add Dirichlet noise to the root node priors.
     """
     noise = jax.random.dirichlet(key, jnp.full((7,), alpha))
-    priors = tree.children_priors[tree.root_index]
+    legal_moves_mask = board_state[0, :] == 0
+    noise = normalize_legal_policy(noise, legal_moves_mask)
+    priors = normalize_legal_policy(
+        tree.children_priors[tree.root_index], legal_moves_mask
+    )
     mixed_priors = (1 - epsilon) * priors + epsilon * noise
+    mixed_priors = normalize_legal_policy(mixed_priors, legal_moves_mask)
     return tree._replace(
         children_priors=tree.children_priors.at[tree.root_index].set(mixed_priors)
     )
@@ -547,6 +559,7 @@ def run_mcts_search(
     temperature_depth: int = 15,
     dirichlet_alpha: float = 0.3,
     dirichlet_epsilon: float = 0.25,
+    add_root_noise: bool = False,
 ) -> tuple[SearchTree, jnp.ndarray, jnp.ndarray, TrainingSample]:
     """
     Run MCTS search on the given tree and board state (single game version).
@@ -561,6 +574,7 @@ def run_mcts_search(
         temperature_depth: Depth until which to apply temperature.
         dirichlet_alpha: Dirichlet noise alpha parameter.
         dirichlet_epsilon: Dirichlet noise epsilon (weight) parameter.
+        add_root_noise: Whether to mix Dirichlet noise into root priors.
     Returns:
         tuple[SearchTree, jnp.ndarray, jnp.ndarray, TrainingSample]:
         - Updated SearchTree (advanced to the chosen action).
@@ -662,7 +676,7 @@ def run_mcts_search(
             turn_count = jnp.count_nonzero(board_state)
             model_input = to_model_input(board_state, turn_count)
             (priors, value), _ = model(model_input, model_state)
-            priors = jax.nn.softmax(priors)
+            priors = masked_policy_softmax(priors, board_state[0, :] == 0)
             return tree._replace(
                 children_priors=tree.children_priors.at[tree.root_index, :].set(priors)
             )
@@ -675,9 +689,11 @@ def run_mcts_search(
             tree,
         )
 
-        # Add Dirichlet noise to root priors for exploration
-        key, noise_key = jax.random.split(key)
-        tree = add_dirichlet_noise(tree, noise_key, dirichlet_alpha, dirichlet_epsilon)
+        if add_root_noise:
+            key, noise_key = jax.random.split(key)
+            tree = add_dirichlet_noise(
+                tree, noise_key, board_state, dirichlet_alpha, dirichlet_epsilon
+            )
 
     final_state: MCTSLoopState = jax.lax.fori_loop(
         0,
@@ -697,14 +713,8 @@ def run_mcts_search(
 
     # Sample action from the visit counts (with temperature)
     def sample_action(key, visits, temp):
-        # Exponentiate visits by 1/temp
-        logits = jnp.log(visits + 1e-8) / temp
-        # Mask again to be safe (logits will be very negative for 0 visits)
-        logits = jnp.where(legal_moves_mask, logits, -jnp.inf)
-
-        # Gumbel-Max sampling
-        gumbel_noise = -jnp.log(-jnp.log(jax.random.uniform(key, logits.shape)))
-        return jnp.argmax(logits + gumbel_noise)
+        logits = visit_count_logits(visits, legal_moves_mask, temp)
+        return jax.random.categorical(key, logits)
 
     key, subkey = jax.random.split(key)
     best_action = jax.lax.cond(

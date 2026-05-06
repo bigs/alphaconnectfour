@@ -53,21 +53,31 @@ def test_expand_equivalence(tree_params):
 
     arena = BatchedSearchTree.init(B, N, A)
     mcts = SearchTree.init(N, A)
+    board_state = jnp.zeros((6, 7), dtype=jnp.int32)
+    batched_board = jnp.expand_dims(board_state, 0)
 
     leaf_index = 0  # Root
     action = 3
 
     # Expand Arena
     # Arena expects batched inputs
-    arena, arena_node_idx = batched.expand_leaf(
+    arena, arena_node_idx, _ = batched.expand_leaf(
         arena,
         jnp.array([leaf_index], dtype=jnp.int32),
         jnp.array([action], dtype=jnp.int32),
+        batched_board,
+        None,
+        None,
     )
 
     # Expand MCTS
-    mcts, mcts_node_idx = single.expand_leaf(
-        mcts, jnp.array(leaf_index, dtype=jnp.int32), jnp.array(action, dtype=jnp.int32)
+    mcts, mcts_node_idx, _ = single.expand_leaf(
+        mcts,
+        jnp.array(leaf_index, dtype=jnp.int32),
+        jnp.array(action, dtype=jnp.int32),
+        board_state,
+        None,
+        None,
     )
 
     assert arena_node_idx[0] == mcts_node_idx, "New node index mismatch"
@@ -77,14 +87,22 @@ def test_expand_equivalence(tree_params):
     new_leaf_index = mcts_node_idx
     action_2 = 4
 
-    arena, arena_node_idx_2 = batched.expand_leaf(
+    arena, arena_node_idx_2, _ = batched.expand_leaf(
         arena,
         jnp.array([new_leaf_index], dtype=jnp.int32),
         jnp.array([action_2], dtype=jnp.int32),
+        batched_board,
+        None,
+        None,
     )
 
-    mcts, mcts_node_idx_2 = single.expand_leaf(
-        mcts, new_leaf_index, jnp.array(action_2, dtype=jnp.int32)
+    mcts, mcts_node_idx_2, _ = single.expand_leaf(
+        mcts,
+        new_leaf_index,
+        jnp.array(action_2, dtype=jnp.int32),
+        board_state,
+        None,
+        None,
     )
 
     assert arena_node_idx_2[0] == mcts_node_idx_2, "Second node index mismatch"
@@ -96,18 +114,28 @@ def test_backprop_equivalence(tree_params):
 
     arena = BatchedSearchTree.init(B, N, A)
     mcts = SearchTree.init(N, A)
+    board_state = jnp.zeros((6, 7), dtype=jnp.int32)
+    batched_board = jnp.expand_dims(board_state, 0)
 
     # Expand a node to backprop from
     leaf_index = 0
     action = 2
 
-    arena, arena_child_idx = batched.expand_leaf(
+    arena, arena_child_idx, _ = batched.expand_leaf(
         arena,
         jnp.array([leaf_index], dtype=jnp.int32),
         jnp.array([action], dtype=jnp.int32),
+        batched_board,
+        None,
+        None,
     )
-    mcts, mcts_child_idx = single.expand_leaf(
-        mcts, jnp.array(leaf_index, dtype=jnp.int32), jnp.array(action, dtype=jnp.int32)
+    mcts, mcts_child_idx, _ = single.expand_leaf(
+        mcts,
+        jnp.array(leaf_index, dtype=jnp.int32),
+        jnp.array(action, dtype=jnp.int32),
+        board_state,
+        None,
+        None,
     )
 
     result_val = 1
@@ -134,18 +162,28 @@ def test_advance_equivalence(tree_params):
 
     arena = BatchedSearchTree.init(B, N, A)
     mcts = SearchTree.init(N, A)
+    board_state = jnp.zeros((6, 7), dtype=jnp.int32)
+    batched_board = jnp.expand_dims(board_state, 0)
 
     # Expand a node so we can advance to it
     leaf_index = 0
     action = 5
 
-    arena, _ = batched.expand_leaf(
+    arena, _, _ = batched.expand_leaf(
         arena,
         jnp.array([leaf_index], dtype=jnp.int32),
         jnp.array([action], dtype=jnp.int32),
+        batched_board,
+        None,
+        None,
     )
-    mcts, _ = single.expand_leaf(
-        mcts, jnp.array(leaf_index, dtype=jnp.int32), jnp.array(action, dtype=jnp.int32)
+    mcts, _, _ = single.expand_leaf(
+        mcts,
+        jnp.array(leaf_index, dtype=jnp.int32),
+        jnp.array(action, dtype=jnp.int32),
+        board_state,
+        None,
+        None,
     )
 
     # Advance Arena

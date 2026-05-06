@@ -47,8 +47,8 @@ def test_select_leaf_initial(params):
 
     # Select on empty tree
     # Should pick first action because all UCBs are inf (visits=0)
-    res_arena = batched.select_leaf(arena, batched_board)
-    res_mcts = single.select_leaf(mcts, board_state)
+    res_arena = batched.select_leaf(arena, batched_board, batched.SelectLeafOptions())
+    res_mcts = single.select_leaf(mcts, board_state, single.SelectLeafOptions())
 
     assert_selection_equal(res_arena, res_mcts)
 
@@ -70,13 +70,21 @@ def test_select_leaf_after_expansion_and_backprop(params):
     leaf_idx = 0
     action = 0
 
-    arena, arena_node_idx = batched.expand_leaf(
+    arena, arena_node_idx, _ = batched.expand_leaf(
         arena,
         jnp.array([leaf_idx], dtype=jnp.int32),
         jnp.array([action], dtype=jnp.int32),
+        batched_board,
+        None,
+        None,
     )
-    mcts, mcts_node_idx = single.expand_leaf(
-        mcts, jnp.array(leaf_idx, dtype=jnp.int32), jnp.array(action, dtype=jnp.int32)
+    mcts, mcts_node_idx, _ = single.expand_leaf(
+        mcts,
+        jnp.array(leaf_idx, dtype=jnp.int32),
+        jnp.array(action, dtype=jnp.int32),
+        board_state,
+        None,
+        None,
     )
 
     # 2. Backpropagate a result to update stats for Action 0
@@ -90,8 +98,8 @@ def test_select_leaf_after_expansion_and_backprop(params):
 
     # 3. Select again
     # Should avoid Action 0 (finite UCB) and pick Action 1 (infinite UCB)
-    res_arena = batched.select_leaf(arena, batched_board)
-    res_mcts = single.select_leaf(mcts, board_state)
+    res_arena = batched.select_leaf(arena, batched_board, batched.SelectLeafOptions())
+    res_mcts = single.select_leaf(mcts, board_state, single.SelectLeafOptions())
 
     assert_selection_equal(res_arena, res_mcts)
     assert res_mcts.leaf_index == 0
@@ -99,13 +107,21 @@ def test_select_leaf_after_expansion_and_backprop(params):
 
     # 4. Expand Root -> Action 1
     action_1 = 1
-    arena, arena_node_idx_2 = batched.expand_leaf(
+    arena, arena_node_idx_2, _ = batched.expand_leaf(
         arena,
         jnp.array([leaf_idx], dtype=jnp.int32),
         jnp.array([action_1], dtype=jnp.int32),
+        batched_board,
+        None,
+        None,
     )
-    mcts, mcts_node_idx_2 = single.expand_leaf(
-        mcts, jnp.array(leaf_idx, dtype=jnp.int32), jnp.array(action_1, dtype=jnp.int32)
+    mcts, mcts_node_idx_2, _ = single.expand_leaf(
+        mcts,
+        jnp.array(leaf_idx, dtype=jnp.int32),
+        jnp.array(action_1, dtype=jnp.int32),
+        board_state,
+        None,
+        None,
     )
 
     # Backprop Action 1 with a LOSS (-1) from perspective of parent?
@@ -122,8 +138,8 @@ def test_select_leaf_after_expansion_and_backprop(params):
     # Action 1 has val -1, visits 1.
     # Other actions have visits 0 (inf).
     # Selection should pick Action 2 (next inf).
-    res_arena = batched.select_leaf(arena, batched_board)
-    res_mcts = single.select_leaf(mcts, board_state)
+    res_arena = batched.select_leaf(arena, batched_board, batched.SelectLeafOptions())
+    res_mcts = single.select_leaf(mcts, board_state, single.SelectLeafOptions())
     assert_selection_equal(res_arena, res_mcts)
     assert res_mcts.action_to_expand == 2
 
@@ -150,13 +166,21 @@ def test_select_leaf_traversal(params):
 
     for a in range(A):
         # Expand
-        arena, a_idx = batched.expand_leaf(
+        arena, a_idx, _ = batched.expand_leaf(
             arena,
             jnp.array([root_idx], dtype=jnp.int32),
             jnp.array([a], dtype=jnp.int32),
+            batched_board,
+            None,
+            None,
         )
-        mcts, m_idx = single.expand_leaf(
-            mcts, jnp.array(root_idx, dtype=jnp.int32), jnp.array(a, dtype=jnp.int32)
+        mcts, m_idx, _ = single.expand_leaf(
+            mcts,
+            jnp.array(root_idx, dtype=jnp.int32),
+            jnp.array(a, dtype=jnp.int32),
+            board_state,
+            None,
+            None,
         )
 
         arena_child_indices.append(a_idx)
@@ -173,8 +197,8 @@ def test_select_leaf_traversal(params):
     # Child 0 is at index mcts_child_indices[0]
     # At Child 0, visits are 0, so it should pick Action 0 (first inf) from Child 0.
 
-    res_arena = batched.select_leaf(arena, batched_board)
-    res_mcts = single.select_leaf(mcts, board_state)
+    res_arena = batched.select_leaf(arena, batched_board, batched.SelectLeafOptions())
+    res_mcts = single.select_leaf(mcts, board_state, single.SelectLeafOptions())
 
     assert_selection_equal(res_arena, res_mcts)
 

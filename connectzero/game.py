@@ -214,6 +214,64 @@ def to_model_input(board_state: jnp.ndarray, turn_count: jnp.ndarray) -> jnp.nda
 to_model_input_batched = jax.vmap(to_model_input, in_axes=(0, 0))
 
 
+def normalize_legal_policy(
+    policy: jnp.ndarray,
+    legal_moves_mask: jnp.ndarray,
+    axis: int = -1,
+) -> jnp.ndarray:
+    """
+    Zero illegal actions and renormalize the remaining probability mass.
+    """
+    masked_policy = jnp.where(legal_moves_mask, policy, 0.0)
+    total = jnp.sum(masked_policy, axis=axis, keepdims=True)
+    return jnp.where(total > 0, masked_policy / total, jnp.zeros_like(masked_policy))
+
+
+def masked_policy_softmax(
+    logits: jnp.ndarray,
+    legal_moves_mask: jnp.ndarray,
+    axis: int = -1,
+) -> jnp.ndarray:
+    """
+    Softmax logits over legal actions only.
+    """
+    masked_logits = jnp.where(legal_moves_mask, logits, -1e9)
+    policy = jax.nn.softmax(masked_logits, axis=axis)
+    return normalize_legal_policy(policy, legal_moves_mask, axis=axis)
+
+
+def visit_count_logits(
+    visit_counts: jnp.ndarray,
+    legal_moves_mask: jnp.ndarray,
+    temperature: float,
+    axis: int = -1,
+) -> jnp.ndarray:
+    """
+    Convert MCTS visit counts into sampling logits.
+
+    Actions with zero visits receive zero probability. If no legal action has
+    been visited, fall back to a uniform distribution over legal actions.
+    """
+    legal_visits = jnp.where(legal_moves_mask, visit_counts, 0)
+    positive_visits = legal_visits > 0
+
+    safe_temperature = jnp.maximum(jnp.asarray(temperature, dtype=jnp.float32), 1e-6)
+    safe_visits = jnp.maximum(legal_visits, 1).astype(jnp.float32)
+    count_logits = jnp.where(
+        positive_visits,
+        jnp.log(safe_visits) / safe_temperature,
+        -jnp.inf,
+    )
+
+    has_positive_visit = jnp.any(positive_visits, axis=axis, keepdims=True)
+    has_legal_move = jnp.any(legal_moves_mask, axis=axis, keepdims=True)
+    uniform_legal_logits = jnp.where(legal_moves_mask, 0.0, -jnp.inf)
+    uniform_legal_logits = jnp.where(
+        has_legal_move, uniform_legal_logits, jnp.zeros_like(uniform_legal_logits)
+    )
+    return jnp.where(has_positive_visit, count_logits, uniform_legal_logits)
+
+
 def save_trajectories(samples: list[TrainingSample], filename: str):
     """
     Save a list of TrainingSample named tuples to a Parquet file.

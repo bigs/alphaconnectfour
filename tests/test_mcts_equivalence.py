@@ -53,12 +53,12 @@ def test_mcts_search_equivalence(params):
     batched_board = jnp.expand_dims(board_state, 0)
 
     # Run MCTS Search
-    next_arena, best_action_arena, new_board_arena = batched.run_mcts_search(
-        arena, batched_board, num_simulations, key
+    next_arena, best_action_arena, new_board_arena, _ = batched.run_mcts_search(
+        arena, batched_board, num_simulations, jnp.sqrt(2), key, None
     )
 
-    next_mcts, best_action_mcts, new_board_mcts = single.run_mcts_search(
-        mcts, board_state, num_simulations, key
+    next_mcts, best_action_mcts, new_board_mcts, _ = single.run_mcts_search(
+        mcts, board_state, num_simulations, jnp.sqrt(2), key, None
     )
 
     # Verify outputs
@@ -94,12 +94,12 @@ def test_mcts_search_equivalence_midgame(params):
 
     batched_board = jnp.expand_dims(board_state, 0)
 
-    next_arena, best_action_arena, new_board_arena = batched.run_mcts_search(
-        arena, batched_board, num_simulations, key
+    next_arena, best_action_arena, new_board_arena, _ = batched.run_mcts_search(
+        arena, batched_board, num_simulations, jnp.sqrt(2), key, None
     )
 
-    next_mcts, best_action_mcts, new_board_mcts = single.run_mcts_search(
-        mcts, board_state, num_simulations, key
+    next_mcts, best_action_mcts, new_board_mcts, _ = single.run_mcts_search(
+        mcts, board_state, num_simulations, jnp.sqrt(2), key, None
     )
 
     assert best_action_arena[0] == best_action_mcts, "Best action mismatch"
